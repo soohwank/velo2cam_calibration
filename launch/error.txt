@@ -1,0 +1,8 @@
+Warmup phase completed. Starting calibration phase.
+[ INFO] [1710949067.362999702]: sensor2 (map) pattern ready!
+[ INFO] [1710949067.363865699]: [V2C] sensor2
+c0=[0.388833 -2.72646 -0.221728]
+c1=[-0.112986 -2.67929 -0.206316]
+c2=[-0.124112 -2.657 -0.621704]
+c3=[0.381681 -2.70455 -0.637279]
+[ INFO] [1710949067.380909134]: sensor1 (camera) pattern ready!

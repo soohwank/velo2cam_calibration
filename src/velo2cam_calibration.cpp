@@ -89,10 +89,8 @@ long int sensor1_count, sensor2_count;
 
 std::ofstream savefile;
 
-void sensor1_callback(
-    const velo2cam_calibration::ClusterCentroids::ConstPtr sensor1_centroids);
-void sensor2_callback(
-    velo2cam_calibration::ClusterCentroids::ConstPtr sensor2_centroids);
+void sensor1_callback(const velo2cam_calibration::ClusterCentroids::ConstPtr sensor1_centroids);
+void sensor2_callback(      velo2cam_calibration::ClusterCentroids::ConstPtr sensor2_centroids);
 
 ros::NodeHandle *nh_;
 
@@ -100,9 +98,8 @@ ros::Subscriber sensor1_sub, sensor2_sub;
 
 void calibrateExtrinsics(int seek_iter = -1) {
   std::vector<pcl::PointXYZ> local_sensor1_vector, local_sensor2_vector;
-  pcl::PointCloud<pcl::PointXYZ>::Ptr local_sensor1_cloud(
-      new pcl::PointCloud<pcl::PointXYZ>),
-      local_sensor2_cloud(new pcl::PointCloud<pcl::PointXYZ>);
+  pcl::PointCloud<pcl::PointXYZ>::Ptr local_sensor1_cloud(new pcl::PointCloud<pcl::PointXYZ>);
+  pcl::PointCloud<pcl::PointXYZ>::Ptr local_sensor2_cloud(new pcl::PointCloud<pcl::PointXYZ>);
   pcl::PointCloud<pcl::PointXYZ> local_l_cloud, local_c_cloud;
 
   int used_sensor2, used_sensor1;
@@ -171,8 +168,10 @@ void calibrateExtrinsics(int seek_iter = -1) {
       total_sensor2 = std::get<0>(*it2);
     }
     ROS_INFO("Synchronizing cluster centroids");
-  } else {  // Add clouds (per sensor) from every position using last available
-            // detection
+  }
+  else
+  { // Add clouds (per sensor) from every position using last available
+    // detection
     for (int i = 0; i < TARGET_POSITIONS_COUNT + 1; ++i) {
       // Sensor 1
       local_sensor1_vector.insert(
@@ -224,12 +223,61 @@ void calibrateExtrinsics(int seek_iter = -1) {
   trans_est_svd.estimateRigidTransformation(*sorted_centers1, *sorted_centers2,
                                             final_transformation);
 
+  // SWAN: print two point clouds
+  {
+    int pt_count;
+
+    ROS_INFO("[SWAN] *** Sensor 1 (Camera) ***");
+    pt_count = 0;
+    for (const auto& pt: sorted_centers1->points)
+    {
+      ROS_INFO("C_p_%d = (%f, %f, %f)", pt_count, pt.x, pt.y, pt.z);
+      pt_count++;
+    }
+
+    ROS_INFO("[SWAN] *** Sensor 2 (LiDAR) ***");
+    pt_count = 0;
+    for (const auto& pt: sorted_centers2->points)
+    {
+      ROS_INFO("L_p_%d = (%f, %f, %f)", pt_count, pt.x, pt.y, pt.z);
+      pt_count++;
+    }
+
+    ROS_INFO("[SWAN] *** Transformation ***");
+    for (int row = 0; row < 4; row++)
+    {
+      ROS_INFO("%f, %f, %f, %f", final_transformation(row, 0),
+                                 final_transformation(row, 1),
+                                 final_transformation(row, 2),
+                                 final_transformation(row, 3));
+    }
+
+    ROS_INFO("[SWAN] *** Compare ***");
+    pt_count = 0;
+    pcl::PointCloud<pcl::PointXYZ>::iterator it1 = sorted_centers1->begin();
+    pcl::PointCloud<pcl::PointXYZ>::iterator it2 = sorted_centers2->begin();
+    for(; it1 != sorted_centers1->end(); it1++, it2++)
+    {
+      // Points
+      pcl::PointXYZ &Cp = *it1;
+      pcl::PointXYZ &Lp = *it2;
+
+      // Lp = L_T_C * C_p
+      pcl::PointXYZ Lp_(final_transformation(0, 0)*(Cp.x) + final_transformation(0, 1)*(Cp.y) + final_transformation(0, 2)*(Cp.z) + final_transformation(0, 3),
+                        final_transformation(1, 0)*(Cp.x) + final_transformation(1, 1)*(Cp.y) + final_transformation(1, 2)*(Cp.z) + final_transformation(1, 3),
+                        final_transformation(2, 0)*(Cp.x) + final_transformation(2, 1)*(Cp.y) + final_transformation(2, 2)*(Cp.z) + final_transformation(2, 3));
+      
+      // Error
+      float error = sqrt(powf(Lp.x - Lp_.x, 2) + powf(Lp.y - Lp_.y, 2) + powf(Lp.z - Lp_.z, 2));
+      ROS_INFO("Error_%d = %f", pt_count, error);
+      pt_count++;
+    }
+  }
+
   tf::Matrix3x3 tf3d;
-  tf3d.setValue(final_transformation(0, 0), final_transformation(0, 1),
-                final_transformation(0, 2), final_transformation(1, 0),
-                final_transformation(1, 1), final_transformation(1, 2),
-                final_transformation(2, 0), final_transformation(2, 1),
-                final_transformation(2, 2));
+  tf3d.setValue(final_transformation(0, 0), final_transformation(0, 1), final_transformation(0, 2),
+                final_transformation(1, 0), final_transformation(1, 1), final_transformation(1, 2),
+                final_transformation(2, 0), final_transformation(2, 1), final_transformation(2, 2));
 
   tf::Quaternion tfqt;
   tf3d.getRotation(tfqt);
@@ -270,8 +318,8 @@ void calibrateExtrinsics(int seek_iter = -1) {
   sensor2Received = false;
 }
 
-void sensor1_callback(
-    const velo2cam_calibration::ClusterCentroids::ConstPtr sensor1_centroids) {
+void sensor1_callback(const velo2cam_calibration::ClusterCentroids::ConstPtr sensor1_centroids)
+{
   sensor1_frame_id = sensor1_centroids->header.frame_id;
   if (!S1_WARMUP_DONE) {
     S1_WARMUP_COUNT++;
@@ -303,10 +351,8 @@ void sensor1_callback(
         S1_WARMUP_COUNT = 0;
       }
 
-      sensor1_sub = nh_->subscribe<velo2cam_calibration::ClusterCentroids>(
-          "cloud1", 100, sensor1_callback);
-      sensor2_sub = nh_->subscribe<velo2cam_calibration::ClusterCentroids>(
-          "cloud2", 100, sensor2_callback);
+      sensor1_sub = nh_->subscribe<velo2cam_calibration::ClusterCentroids>("cloud1", 100, sensor1_callback);
+      sensor2_sub = nh_->subscribe<velo2cam_calibration::ClusterCentroids>("cloud2", 100, sensor2_callback);
     }
     return;
   }
@@ -321,6 +367,7 @@ void sensor1_callback(
     sensor1_buffer.resize(TARGET_POSITIONS_COUNT + 1);
   }
 
+  // SWAN: if it is a camera
   if (is_sensor1_cam) {
     std::ostringstream sstream;
     sstream << "rotated_" << sensor1_frame_id;
@@ -333,29 +380,54 @@ void sensor1_callback(
 
     tf::TransformListener listener;
     tf::StampedTransform transform;
-    try {
+    try
+    {
       listener.waitForTransform(sensor1_rotated_frame_id, sensor1_frame_id,
                                 ros::Time(0), ros::Duration(20.0));
       listener.lookupTransform(sensor1_rotated_frame_id, sensor1_frame_id,
                                ros::Time(0), transform);
-    } catch (tf::TransformException &ex) {
+      
+      ROS_INFO("*******************************");
+      ROS_INFO("[SWAN] sensor1_rotated_frame_id = %s", sensor1_rotated_frame_id.c_str());
+      ROS_INFO("[SWAN] sensor1_frame_id = %s", sensor1_frame_id.c_str());
+      ROS_INFO("*******************************");
+    } 
+    catch (tf::TransformException &ex)
+    {
       ROS_WARN("TF exception:\n%s", ex.what());
       return;
+    }
+
+    {
+      ROS_INFO("********************************");
+      ROS_INFO("[SWAN] (camera) sensor1_rotated_frame_id = %s", sensor1_rotated_frame_id.c_str());
+      ROS_INFO("[SWAN] (camera) transform");
+      tf::Matrix3x3 R = transform.getBasis();
+      tf::Vector3   t = transform.getOrigin();
+      ROS_INFO("\t\t%f\t%f\t%f\t%f", R[0].getX(), R[0].getY(), R[0].getZ(), t.getX());
+      ROS_INFO("\t\t%f\t%f\t%f\t%f", R[1].getX(), R[1].getY(), R[1].getZ(), t.getY());
+      ROS_INFO("\t\t%f\t%f\t%f\t%f", R[2].getX(), R[2].getY(), R[2].getZ(), t.getZ());
+      ROS_INFO("********************************");
     }
 
     tf::Transform inverse = transform.inverse();
     double roll, pitch, yaw;
     inverse.getBasis().getRPY(roll, pitch, yaw);
 
+    // SWAN: for camera, transform the centroids
     pcl_ros::transformPointCloud(*xy_sensor1_cloud, *sensor1_cloud, transform);
-  } else {
+  } 
+  else
+  {
+    // SWAN: for lidar, use it without transformation
     fromROSMsg(sensor1_centroids->cloud, *sensor1_cloud);
   }
 
   sensor1Received = true;
 
   sortPatternCenters(sensor1_cloud, sensor1_vector);
-  if (DEBUG) {
+  if (DEBUG)
+  {
     colourCenters(sensor1_vector, isensor1_cloud);
 
     sensor_msgs::PointCloud2 colour_cloud;
@@ -378,7 +450,7 @@ void sensor1_callback(
   for (vector<pcl::PointXYZ>::iterator it = sensor1_vector.begin();
        it < sensor1_vector.end(); ++it) {
     if (DEBUG)
-      cout << "l" << it - sensor1_vector.begin() << "="
+      cout << "c" << it - sensor1_vector.begin() << "="
            << "[" << (*it).x << " " << (*it).y << " " << (*it).z << "]" << endl;
   }
 
@@ -458,8 +530,7 @@ void sensor1_callback(
   }
 }
 
-void sensor2_callback(
-    velo2cam_calibration::ClusterCentroids::ConstPtr sensor2_centroids) {
+void sensor2_callback(velo2cam_calibration::ClusterCentroids::ConstPtr sensor2_centroids) {
   sensor2_frame_id = sensor2_centroids->header.frame_id;
   if (!S2_WARMUP_DONE && S1_WARMUP_DONE) {
     S2_WARMUP_COUNT++;
@@ -579,7 +650,7 @@ void sensor2_callback(
   for (vector<pcl::PointXYZ>::iterator it = sensor2_vector.begin();
        it < sensor2_vector.end(); ++it) {
     if (DEBUG)
-      cout << "c" << it - sensor2_vector.begin() << "="
+      cout << "l" << it - sensor2_vector.begin() << "="
            << "[" << (*it).x << " " << (*it).y << " " << (*it).z << "]" << endl;
   }
 
@@ -678,35 +749,27 @@ int main(int argc, char **argv) {
                      "registration_" + currentDateTime() + ".csv");
 
   sensor1Received = false;
-  sensor1_cloud =
-      pcl::PointCloud<pcl::PointXYZ>::Ptr(new pcl::PointCloud<pcl::PointXYZ>);
-  isensor1_cloud =
-      pcl::PointCloud<pcl::PointXYZI>::Ptr(new pcl::PointCloud<pcl::PointXYZI>);
+  sensor1_cloud   = pcl::PointCloud<pcl::PointXYZ>::Ptr(new pcl::PointCloud<pcl::PointXYZ>);
+  isensor1_cloud  = pcl::PointCloud<pcl::PointXYZI>::Ptr(new pcl::PointCloud<pcl::PointXYZI>);
+
   sensor2Received = false;
-  sensor2_cloud =
-      pcl::PointCloud<pcl::PointXYZ>::Ptr(new pcl::PointCloud<pcl::PointXYZ>);
-  isensor2_cloud =
-      pcl::PointCloud<pcl::PointXYZI>::Ptr(new pcl::PointCloud<pcl::PointXYZI>);
+  sensor2_cloud   = pcl::PointCloud<pcl::PointXYZ>::Ptr(new pcl::PointCloud<pcl::PointXYZ>);
+  isensor2_cloud  = pcl::PointCloud<pcl::PointXYZI>::Ptr(new pcl::PointCloud<pcl::PointXYZI>);
 
-  sensor1_sub = nh_->subscribe<velo2cam_calibration::ClusterCentroids>(
-      "cloud1", 100, sensor1_callback);
-  sensor2_sub = nh_->subscribe<velo2cam_calibration::ClusterCentroids>(
-      "cloud2", 100, sensor2_callback);
+  sensor1_sub = nh_->subscribe<velo2cam_calibration::ClusterCentroids>("cloud1", 100, sensor1_callback); // SWAN: mono
+  sensor2_sub = nh_->subscribe<velo2cam_calibration::ClusterCentroids>("cloud2", 100, sensor2_callback); // SWAN: lidar
 
-  if (DEBUG) {
-    clusters_sensor2_pub =
-        nh_->advertise<sensor_msgs::PointCloud2>("clusters_sensor2", 1);
-    clusters_sensor1_pub =
-        nh_->advertise<sensor_msgs::PointCloud2>("clusters_sensor1", 1);
+  if (DEBUG)
+  {
+    clusters_sensor2_pub = nh_->advertise<sensor_msgs::PointCloud2>("clusters_sensor2", 1);
+    clusters_sensor1_pub = nh_->advertise<sensor_msgs::PointCloud2>("clusters_sensor1", 1);
 
-    colour_sensor2_pub =
-        nh_->advertise<sensor_msgs::PointCloud2>("colour_sensor2", 1);
-    colour_sensor1_pub =
-        nh_->advertise<sensor_msgs::PointCloud2>("colour_sensor1", 1);
+    colour_sensor2_pub = nh_->advertise<sensor_msgs::PointCloud2>("colour_sensor2", 1);
+    colour_sensor1_pub = nh_->advertise<sensor_msgs::PointCloud2>("colour_sensor1", 1);
   }
 
   sensor_switch_pub = nh.advertise<std_msgs::Empty>("warmup_switch", 1);
-  iterations_pub = nh_->advertise<std_msgs::Int32>("iterations", 1);
+  iterations_pub    = nh_->advertise<std_msgs::Int32>("iterations", 1);
 
   calibration_ended = false;
 

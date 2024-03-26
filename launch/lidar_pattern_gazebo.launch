@@ -1,7 +1,7 @@
 <launch>
 
   <arg name="stdout" default="screen" />
-  <arg name="cloud_topic" default="/hesai/panda" />
+  <arg name="cloud_topic" default="/velodyne_points" />
   <arg name="sensor_id" default="0" />
 
   <node pkg="nodelet" type="nodelet" name="pcl_manager_$(arg sensor_id)" args="manager" output="$(arg stdout)"/>
@@ -51,11 +51,13 @@
     <!-- SWAN: input options -->
     <param name="rings_count" value="32"/>        <!-- number of lidar channels -->
     <param name="gradient_threshold" value="0.1"/> <!-- range increment for the holes -->
+    <param name="save_to_file" value="true"/>     <!-- center point dump -->
     <!-- SWAN -->
 
     <!-- SWAN: rviz outputs (DEBUG = 1)
     /lidar_pattern_0/pattern_circles: circle points on the plane
     /lidar_pattern_0/cumulative_cloud: circle points on the plane
+    /lidar_pattern_0/centers_cloud: final circle points
     -->
     
 

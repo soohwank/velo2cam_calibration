@@ -44,14 +44,16 @@
 using namespace std;
 using namespace sensor_msgs;
 
-ros::Publisher cumulative_pub, centers_pub, pattern_pub, range_pub, coeff_pub,
-    rotated_pattern_pub;
+ros::Publisher cumulative_pub, centers_pub, pattern_pub, range_pub, coeff_pub, rotated_pattern_pub;
 pcl::PointCloud<pcl::PointXYZ>::Ptr cumulative_cloud;
 
 // Dynamic parameters
 double threshold_;
-double passthrough_radius_min_, passthrough_radius_max_, circle_radius_,
-    centroid_distance_min_, centroid_distance_max_;
+double passthrough_radius_min_, 
+       passthrough_radius_max_, 
+       circle_radius_,
+       centroid_distance_min_,
+       centroid_distance_max_;
 double delta_width_circles_, delta_height_circles_;
 int rings_count_;
 Eigen::Vector3f axis_;
@@ -74,11 +76,13 @@ bool WARMUP_DONE = false;
 void callback(const PointCloud2::ConstPtr &laser_cloud) {
   if (DEBUG) ROS_INFO("[LiDAR] Processing cloud...");
 
-  pcl::PointCloud<Velodyne::Point>::Ptr velocloud(
-      new pcl::PointCloud<Velodyne::Point>),
-      velo_filtered(new pcl::PointCloud<Velodyne::Point>),
-      pattern_cloud(new pcl::PointCloud<Velodyne::Point>),
-      edges_cloud(new pcl::PointCloud<Velodyne::Point>);
+  // SWAN: velocloud = zyx_filtered
+  pcl::PointCloud<Velodyne::Point>::Ptr velocloud(new pcl::PointCloud<Velodyne::Point>);
+
+  // SWAN: velo_filtered = range_filtered_cloud
+  pcl::PointCloud<Velodyne::Point>::Ptr velo_filtered(new pcl::PointCloud<Velodyne::Point>);
+  pcl::PointCloud<Velodyne::Point>::Ptr pattern_cloud(new pcl::PointCloud<Velodyne::Point>);
+  pcl::PointCloud<Velodyne::Point>::Ptr edges_cloud(new pcl::PointCloud<Velodyne::Point>);
 
   clouds_proc_++;
 
@@ -130,24 +134,32 @@ void callback(const PointCloud2::ConstPtr &laser_cloud) {
   coefficients_v(3) = coefficients->values[3];
 
   // Get edges points by range
-  vector<vector<Velodyne::Point *>> rings =
-      Velodyne::getRings(*velocloud, rings_count_);
+  vector<vector<Velodyne::Point *>> rings = Velodyne::getRings(*velocloud, rings_count_);
+
+  // SWAN: for each ring
   for (vector<vector<Velodyne::Point *>>::iterator ring = rings.begin();
        ring < rings.end(); ++ring) {
     Velodyne::Point *prev, *succ;
     if (ring->empty()) continue;
 
+    // SWAN: intensity = 0 for the left/right most point
     (*ring->begin())->intensity = 0;
     (*(ring->end() - 1))->intensity = 0;
+
+    // SWAN: for each point in the ring which is not the left/right most point
     for (vector<Velodyne::Point *>::iterator pt = ring->begin() + 1;
          pt < ring->end() - 1; pt++) {
       Velodyne::Point *prev = *(pt - 1);
       Velodyne::Point *succ = *(pt + 1);
+
+      // SWAN: intensity = max(max(r_{t-1} - r_t, r_{t+1} - r_t), 0.f);
+      //       max of range increment from left or from right
       (*pt)->intensity =
           max(max(prev->range - (*pt)->range, succ->range - (*pt)->range), 0.f);
     }
   }
 
+  // SWAN: edges_cloud = edge points found by range discontinuity
   float THRESHOLD =
       gradient_threshold_;  // 10 cm between the pattern and the background
   for (pcl::PointCloud<Velodyne::Point>::iterator pt =
@@ -164,6 +176,7 @@ void callback(const PointCloud2::ConstPtr &laser_cloud) {
     return;
   }
 
+  // SWAN: pattern_cloud = edges_cloud on the plane
   // Get points belonging to plane in pattern pointcloud
   pcl::SampleConsensusModelPlane<Velodyne::Point>::Ptr dit(
       new pcl::SampleConsensusModelPlane<Velodyne::Point>(edges_cloud));
@@ -173,18 +186,17 @@ void callback(const PointCloud2::ConstPtr &laser_cloud) {
 
   // Velodyne specific info no longer needed for calibration
   // so standard PointXYZ is used from now on
-  pcl::PointCloud<pcl::PointXYZ>::Ptr circles_cloud(
-      new pcl::PointCloud<pcl::PointXYZ>),
-      xy_cloud(new pcl::PointCloud<pcl::PointXYZ>),
-      aux_cloud(new pcl::PointCloud<pcl::PointXYZ>),
-      auxrotated_cloud(new pcl::PointCloud<pcl::PointXYZ>),
-      cloud_f(new pcl::PointCloud<pcl::PointXYZ>),
-      centroid_candidates(new pcl::PointCloud<pcl::PointXYZ>);
+  pcl::PointCloud<pcl::PointXYZ>::Ptr circles_cloud(new pcl::PointCloud<pcl::PointXYZ>);
+  pcl::PointCloud<pcl::PointXYZ>::Ptr xy_cloud(new pcl::PointCloud<pcl::PointXYZ>);
+  pcl::PointCloud<pcl::PointXYZ>::Ptr aux_cloud(new pcl::PointCloud<pcl::PointXYZ>);
+  pcl::PointCloud<pcl::PointXYZ>::Ptr auxrotated_cloud(new pcl::PointCloud<pcl::PointXYZ>);
+  pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_f(new pcl::PointCloud<pcl::PointXYZ>);
+  pcl::PointCloud<pcl::PointXYZ>::Ptr centroid_candidates(new pcl::PointCloud<pcl::PointXYZ>);
 
-  vector<vector<Velodyne::Point *>> rings2 =
-      Velodyne::getRings(*pattern_cloud, rings_count_);
+  vector<vector<Velodyne::Point *>> rings2 = Velodyne::getRings(*pattern_cloud, rings_count_);
 
   // Conversion from Velodyne::Point to pcl::PointXYZ
+  // SWAN: circles_cloud = pattern_cloud which is edges_cloud on the plane
   for (vector<vector<Velodyne::Point *>>::iterator ring = rings2.begin();
        ring < rings2.end(); ++ring) {
     for (vector<Velodyne::Point *>::iterator pt = ring->begin();
@@ -215,12 +227,22 @@ void callback(const PointCloud2::ConstPtr &laser_cloud) {
   floor_plane_normal_vector[1] = coefficients->values[1];
   floor_plane_normal_vector[2] = coefficients->values[2];
 
-  Eigen::Affine3f rotation =
-      getRotationMatrix(floor_plane_normal_vector, xy_plane_normal_vector);
+  ROS_INFO("[SWAN] n_x = %f", floor_plane_normal_vector[0]);
+  ROS_INFO("[SWAN] n_y = %f", floor_plane_normal_vector[1]);
+  ROS_INFO("[SWAN] n_z = %f", floor_plane_normal_vector[2]);
+
+  Eigen::Affine3f rotation = getRotationMatrix(floor_plane_normal_vector, xy_plane_normal_vector);
   pcl::transformPointCloud(*circles_cloud, *xy_cloud, rotation);
 
-  // Publishing "rotated_pattern" cloud (plane transformed to be aligned with
-  // XY)
+  ROS_INFO("**************************************");
+  ROS_INFO("[SWAN] Affine3f (Rotation) (Why?)");
+  ROS_INFO("\t\t%f\t%f\t%f\t%f", rotation(0, 0), rotation(0, 1), rotation(0, 2), rotation(0, 3));
+  ROS_INFO("\t\t%f\t%f\t%f\t%f", rotation(1, 0), rotation(1, 1), rotation(1, 2), rotation(1, 3));
+  ROS_INFO("\t\t%f\t%f\t%f\t%f", rotation(2, 0), rotation(2, 1), rotation(2, 2), rotation(2, 3));
+  ROS_INFO("\t\t%f\t%f\t%f\t%f", rotation(3, 0), rotation(3, 1), rotation(3, 2), rotation(3, 3));
+  ROS_INFO("**************************************");
+
+  // Publishing "rotated_pattern" cloud (plane transformed to be aligned with XY)
   if (DEBUG) {
     sensor_msgs::PointCloud2 ros_rotated_pattern;
     pcl::toROSMsg(*xy_cloud, ros_rotated_pattern);
@@ -507,13 +529,12 @@ int main(int argc, char **argv) {
 
   range_pub = nh_.advertise<PointCloud2>("range_filtered_cloud", 1);
   if (DEBUG) {
-    pattern_pub = nh_.advertise<PointCloud2>("pattern_circles", 1);
+    pattern_pub         = nh_.advertise<PointCloud2>("pattern_circles", 1);
     rotated_pattern_pub = nh_.advertise<PointCloud2>("rotated_pattern", 1);
-    cumulative_pub = nh_.advertise<PointCloud2>("cumulative_cloud", 1);
+    cumulative_pub      = nh_.advertise<PointCloud2>("cumulative_cloud", 1);
   }
-  centers_pub =
-      nh_.advertise<velo2cam_calibration::ClusterCentroids>("centers_cloud", 1);
-  coeff_pub = nh_.advertise<pcl_msgs::ModelCoefficients>("plane_model", 1);
+  centers_pub = nh_.advertise<velo2cam_calibration::ClusterCentroids>("centers_cloud", 1);
+  coeff_pub   = nh_.advertise<pcl_msgs::ModelCoefficients>("plane_model", 1);
 
   string csv_name;
 
@@ -532,6 +553,13 @@ int main(int argc, char **argv) {
   nh_.param("save_to_file", save_to_file_, false);
   nh_.param("csv_name", csv_name,
             "lidar_pattern_" + currentDateTime() + ".csv");
+  
+  if (DEBUG)
+  {
+    ROS_INFO("******************************************************");
+    ROS_INFO("[SWAN] rings_count_ = %d", rings_count_);
+    ROS_INFO("******************************************************");
+  }
 
   cumulative_cloud =
       pcl::PointCloud<pcl::PointXYZ>::Ptr(new pcl::PointCloud<pcl::PointXYZ>);

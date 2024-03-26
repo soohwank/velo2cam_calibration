@@ -1,7 +1,7 @@
 <launch>
 
   <arg name="stdout" default="screen" />
-  <arg name="cloud_topic" default="/hesai/panda" />
+  <arg name="cloud_topic" default="/hesai/pandar" />
   <arg name="sensor_id" default="0" />
 
   <node pkg="nodelet" type="nodelet" name="pcl_manager_$(arg sensor_id)" args="manager" output="$(arg stdout)"/>
@@ -11,8 +11,8 @@
     <remap from="~output" to="/lidar_pattern_$(arg sensor_id)/z_filtered" />
     <rosparam>
       filter_field_name: z
-      filter_limit_min: -2
-      filter_limit_max: 1
+      filter_limit_min: -1
+      filter_limit_max: 0.08
       filter_limit_negative: False
       max_queue_size: 1
     </rosparam>
@@ -23,8 +23,8 @@
     <remap from="~output" to="/lidar_pattern_$(arg sensor_id)/zy_filtered" />
     <rosparam>
       filter_field_name: y
-      filter_limit_min: -0.7
-      filter_limit_max: 2.3
+      filter_limit_min: -4
+      filter_limit_max: -2
       filter_limit_negative: False
       max_queue_size: 1
     </rosparam>
@@ -35,8 +35,8 @@
     <remap from="~output" to="/lidar_pattern_$(arg sensor_id)/zyx_filtered" />
     <rosparam>
       filter_field_name: x
-      filter_limit_min: 0
-      filter_limit_max: 100
+      filter_limit_min: -0.7
+      filter_limit_max: 0.9
       filter_limit_negative: False
       max_queue_size: 1
     </rosparam>
@@ -56,13 +56,13 @@
     <!-- SWAN: rviz outputs (DEBUG = 1)
     /lidar_pattern_0/pattern_circles: circle points on the plane
     /lidar_pattern_0/cumulative_cloud: circle points on the plane
-    -->
-    
+    /lidar_pattern_0/centers_cloud: final circle points
+    -->    
 
     <remap from="~cloud1" to="/lidar_pattern_$(arg sensor_id)/zyx_filtered"/>
     <rosparam>
       passthrough_radius_min: 1.0
-      passthrough_radius_max: 5.0
+      passthrough_radius_max: 3.0
     </rosparam>
   </node>
 

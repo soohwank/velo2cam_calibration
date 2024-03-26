@@ -117,7 +117,9 @@ Eigen::Matrix3f covariance(pcl::PointCloud<pcl::PointXYZ>::Ptr cumulative_cloud,
 }
 
 void imageCallback(const sensor_msgs::ImageConstPtr &msg,
-                   const sensor_msgs::CameraInfoConstPtr &left_info) {
+                   const sensor_msgs::CameraInfoConstPtr &left_info)
+{
+  ROS_INFO("***************** %d", __LINE__);
   frames_proc_++;
 
   cv_bridge::CvImageConstPtr cv_img_ptr;
@@ -130,13 +132,15 @@ void imageCallback(const sensor_msgs::ImageConstPtr &msg,
   cv::Mat image = cv_img_ptr->image;
   cv::Mat imageCopy;
   image.copyTo(imageCopy);
+
+  ROS_INFO("***************** %d", __LINE__);
+  // TODO Not needed at each frame -> Move it to separate callback
+  // Note that camera matrix is K, not P; both are interchangeable only
+  // if D is zero
   sensor_msgs::CameraInfoPtr cinfo(new sensor_msgs::CameraInfo(*left_info));
   image_geometry::PinholeCameraModel cam_model_;
 
-  // TODO Not needed at each frame -> Move it to separate callback
   Mat cameraMatrix(3, 3, CV_32F);
-  // Note that camera matrix is K, not P; both are interchangeable only
-  // if D is zero
   cameraMatrix.at<float>(0, 0) = cinfo->K[0];
   cameraMatrix.at<float>(0, 1) = cinfo->K[1];
   cameraMatrix.at<float>(0, 2) = cinfo->K[2];
@@ -147,40 +151,9 @@ void imageCallback(const sensor_msgs::ImageConstPtr &msg,
   cameraMatrix.at<float>(2, 1) = cinfo->K[7];
   cameraMatrix.at<float>(2, 2) = cinfo->K[8];
 
-  // TODO Not needed at each frame -> Move it to separate callback
-  // Mat cameraMatrix(3, 3, CV_32F);
-  // cameraMatrix.at<float>(0, 0) = 1.01625074e+03;
-  // cameraMatrix.at<float>(0, 1) = 0.00000000e+00;
-  // cameraMatrix.at<float>(0, 2) = 9.71335196e+02;
-
-  // cameraMatrix.at<float>(1, 0) = 0.00000000e+00;
-  // cameraMatrix.at<float>(1, 1) = 1.01593566e+03;
-  // cameraMatrix.at<float>(1, 2) = 6.11513381e+02;
-
-  // cameraMatrix.at<float>(2, 0) = 0.00000000e+00;
-  // cameraMatrix.at<float>(2, 1) = 0.00000000e+00;
-  // cameraMatrix.at<float>(2, 2) = 1.00000000e+00;
-
-
-// // 0.8020611231955407
-// [[1.01625074e+03 0.00000000e+00 9.71335196e+02]
-//  [0.00000000e+00 1.01593566e+03 6.11513381e+02]
-//  [0.00000000e+00 0.00000000e+00 1.00000000e+00]]
-// -3.40945284e-01  1.37990203e-01  4.12559672e-04  2.24201684e-04
-  
-
   Mat distCoeffs(1, cinfo->D.size(), CV_32F);
   for (int i = 0; i < cinfo->D.size(); i++)
     distCoeffs.at<float>(0, i) = cinfo->D[i];
-
-  // Mat distCoeffs(1, 5, CV_32F);
-  // distCoeffs.at<float>(0,1) = -3.40945284e-01;
-  // distCoeffs.at<float>(0,1) = 1.37990203e-01;
-  // distCoeffs.at<float>(0,1) = 4.12559672e-04;
-  // distCoeffs.at<float>(0,1) = 2.24201684e-04;
-  // distCoeffs.at<float>(0,1) = , 1.000000];
-
-  //distCoeffs.at<float>(1,5) = cinfo->D[-3.40945284e-01, 1.37990203e-01, 4.12559672e-04, 2.24201684e-04, 1.000000];
   // TODO End of block to move
 
   // Create vector of markers corners. 4 markers * 4 corners
@@ -197,6 +170,7 @@ void imageCallback(const sensor_msgs::ImageConstPtr &msg,
   // Marker 2 -> aRuCo ID: 4
   // Marker 3 -> aRuCo ID: 3
 
+  ROS_INFO("***************** %d", __LINE__);
   std::vector<std::vector<cv::Point3f>> boardCorners;
   std::vector<cv::Point3f> boardCircleCenters;
   float width = delta_width_qr_center_;
@@ -204,8 +178,7 @@ void imageCallback(const sensor_msgs::ImageConstPtr &msg,
   float circle_width = delta_width_circles_ / 2.;
   float circle_height = delta_height_circles_ / 2.;
   boardCorners.resize(4);
-  for (int i = 0; i < 4; ++i)
-  {
+  for (int i = 0; i < 4; ++i) {
     int x_qr_center =
         (i % 3) == 0 ? -1 : 1;  // x distances are substracted for QRs on the
                                 // left, added otherwise
@@ -216,8 +189,7 @@ void imageCallback(const sensor_msgs::ImageConstPtr &msg,
     float y_center = y_qr_center * height;
 
     cv::Point3f circleCenter3d(x_qr_center * circle_width,
-                               y_qr_center * circle_height, 
-                               0);
+                               y_qr_center * circle_height, 0);
     boardCircleCenters.push_back(circleCenter3d);
     for (int j = 0; j < 4; ++j) {
       int x_qr = (j % 3) == 0 ? -1 : 1;  // x distances are added for QRs 0 and
@@ -230,6 +202,7 @@ void imageCallback(const sensor_msgs::ImageConstPtr &msg,
     }
   }
 
+  ROS_INFO("***************** %d", __LINE__);
   std::vector<int> boardIds{1, 2, 4, 3};  // IDs order as explained above
   cv::Ptr<cv::aruco::Board> board =
       cv::aruco::Board::create(boardCorners, dictionary, boardIds);
@@ -245,6 +218,7 @@ void imageCallback(const sensor_msgs::ImageConstPtr &msg,
   parameters->cornerRefinementMethod = cv::aruco::CORNER_REFINE_SUBPIX;
 #endif
 
+  ROS_INFO("***************** %d", __LINE__);
   // Detect markers
   std::vector<int> ids;
   std::vector<std::vector<cv::Point2f>> corners;
@@ -255,6 +229,7 @@ void imageCallback(const sensor_msgs::ImageConstPtr &msg,
 
   cv::Vec3d rvec(0, 0, 0), tvec(0, 0, 0);  // Vectors to store initial guess
 
+  ROS_INFO("***************** %d", __LINE__);
   // Compute initial guess as average of individual markers poses
   if (ids.size() >= min_detected_markers_ && ids.size() <= TARGET_NUM_CIRCLES)
   {
@@ -264,9 +239,9 @@ void imageCallback(const sensor_msgs::ImageConstPtr &msg,
     cv::aruco::estimatePoseSingleMarkers(corners, marker_size_, cameraMatrix,
                                          distCoeffs, rvecs, tvecs);
 
+    ROS_INFO("***************** %d", __LINE__);
     // Draw markers' axis and centers in color image (Debug purposes)
-    for (int i = 0; i < ids.size(); i++)
-    {
+    for (int i = 0; i < ids.size(); i++) {
       double x = tvecs[i][0];
       double y = tvecs[i][1];
       double z = tvecs[i][2];
@@ -290,6 +265,7 @@ void imageCallback(const sensor_msgs::ImageConstPtr &msg,
       rvec_cos[2] += cos(rvecs[i][2]);
     }
 
+    ROS_INFO("***************** %d", __LINE__);
     // Compute average pose. Rotation computed as atan2(sin/cos)
     tvec = tvec / int(ids.size());
     rvec_sin = rvec_sin / int(ids.size());  // Average sin
@@ -303,6 +279,7 @@ void imageCallback(const sensor_msgs::ImageConstPtr &msg,
     pcl::PointCloud<pcl::PointXYZ>::Ptr candidates_cloud(
         new pcl::PointCloud<pcl::PointXYZ>);
 
+    ROS_INFO("***************** %d", __LINE__);
 // Estimate 3D position of the board using detected markers
 #if (CV_MAJOR_VERSION == 3 && CV_MINOR_VERSION <= 2) || CV_MAJOR_VERSION < 3
     int valid = cv::aruco::estimatePoseBoard(corners, ids, board, cameraMatrix,
@@ -327,18 +304,9 @@ void imageCallback(const sensor_msgs::ImageConstPtr &msg,
     R.copyTo(board_transform.rowRange(0, 3).colRange(0, 3));
     t.copyTo(board_transform.rowRange(0, 3).col(3));
 
-    ROS_INFO("**************************");
-    ROS_INFO("[SWAN] Board Transformaion");
-    ROS_INFO("\r%f,%f,%f,%f", board_transform.at<float>(0, 0), board_transform.at<float>(0, 1), board_transform.at<float>(0, 2), board_transform.at<float>(0, 3));
-    ROS_INFO("\r%f,%f,%f,%f", board_transform.at<float>(1, 0), board_transform.at<float>(1, 1), board_transform.at<float>(1, 2), board_transform.at<float>(1, 3));
-    ROS_INFO("\r%f,%f,%f,%f", board_transform.at<float>(2, 0), board_transform.at<float>(2, 1), board_transform.at<float>(2, 2), board_transform.at<float>(2, 3));
-    ROS_INFO("\r tvec = %f,%f,%f", tvec[0], tvec[1], tvec[2]);
-    ROS_INFO("\r rvec = %f,%f,%f", rvec[0], rvec[1], rvec[2]);
-    ROS_INFO("**************************");
-
+    ROS_INFO("***************** %d", __LINE__);
     // Compute coordintates of circle centers
-    for (int i = 0; i < boardCircleCenters.size(); ++i)
-    {
+    for (int i = 0; i < boardCircleCenters.size(); ++i) {
       cv::Mat mat = cv::Mat::zeros(4, 1, CV_32F);
       mat.at<float>(0, 0) = boardCircleCenters[i].x;
       mat.at<float>(1, 0) = boardCircleCenters[i].y;
@@ -395,6 +363,7 @@ void imageCallback(const sensor_msgs::ImageConstPtr &msg,
         candidates.push_back(center);
       }
 
+      ROS_INFO("***************** %d", __LINE__);
       // Compute candidates score
       Square square_candidate(candidates, delta_width_circles_,
                               delta_height_circles_);
@@ -403,6 +372,7 @@ void imageCallback(const sensor_msgs::ImageConstPtr &msg,
                              : -1;  // -1 when it's not valid, 1 otherwise
     }
 
+    ROS_INFO("***************** %d", __LINE__);
     int best_candidate_idx = -1;
     double best_candidate_score = -1;
     for (int i = 0; i < groups.size(); ++i) {
@@ -419,6 +389,7 @@ void imageCallback(const sensor_msgs::ImageConstPtr &msg,
       }
     }
 
+    ROS_INFO("***************** %d", __LINE__);
     if (best_candidate_idx == -1) {
       // Exit: No candidates fit target's geometry
       ROS_WARN(
@@ -451,6 +422,7 @@ void imageCallback(const sensor_msgs::ImageConstPtr &msg,
       }
     }
 
+    ROS_INFO("***************** %d", __LINE__);
     if (DEBUG) {  // Draw centers
       for (int i = 0; i < centers_cloud->size(); i++) {
         cv::Point3f pt_circle1(centers_cloud->at(i).x, centers_cloud->at(i).y,
@@ -461,6 +433,9 @@ void imageCallback(const sensor_msgs::ImageConstPtr &msg,
       }
     }
 
+
+
+    ROS_INFO("***************** %d", __LINE__);
     // Compute centers clusters
     pcl::PointCloud<pcl::PointXYZ>::Ptr clusters_cloud(
         new pcl::PointCloud<pcl::PointXYZ>);
@@ -475,6 +450,7 @@ void imageCallback(const sensor_msgs::ImageConstPtr &msg,
       }
     }
 
+    ROS_INFO("***************** %d", __LINE__);
     // Publish pointcloud messages
     if (DEBUG) {
       sensor_msgs::PointCloud2 ros_pointcloud;
@@ -483,13 +459,7 @@ void imageCallback(const sensor_msgs::ImageConstPtr &msg,
       qr_pub.publish(ros_pointcloud);
     }
 
-    if (DEBUG)
-    {
-      ROS_INFO("******************************************************");
-      ROS_INFO("[SWAN] number of circles = %d", clusters_cloud->points.size());
-      ROS_INFO("******************************************************");
-    }
-
+    ROS_INFO("***************** %d", __LINE__);
     if (clusters_cloud->points.size() == TARGET_NUM_CIRCLES) {
       sensor_msgs::PointCloud2 centers_pointcloud;
       pcl::toROSMsg(*clusters_cloud, centers_pointcloud);
@@ -516,6 +486,7 @@ void imageCallback(const sensor_msgs::ImageConstPtr &msg,
       }
     }
 
+    ROS_INFO("***************** %d", __LINE__);
     if (DEBUG) {
       sensor_msgs::PointCloud2 cumulative_pointcloud;
       pcl::toROSMsg(*cumulative_cloud, cumulative_pointcloud);
@@ -526,11 +497,14 @@ void imageCallback(const sensor_msgs::ImageConstPtr &msg,
     if (save_to_file_) {
       savefile << endl;
     }
-  } else {  // Markers found != TARGET_NUM_CIRCLES
+  } else 
+  {  // Markers found != TARGET_NUM_CIRCLES
     ROS_WARN("%lu marker(s) found, %d expected. Skipping frame...", ids.size(),
              TARGET_NUM_CIRCLES);
   }
 
+  ROS_INFO("***************** %d", __LINE__);
+  // SWAN: out window
   if (DEBUG) {
     cv::namedWindow("out", WINDOW_NORMAL);
     cv::imshow("out", imageCopy);
@@ -545,26 +519,7 @@ void imageCallback(const sensor_msgs::ImageConstPtr &msg,
   }
 }
 
-void param_callback(velo2cam_calibration::MonocularConfig &config,
-                    uint32_t level) {
-  marker_size_ = config.marker_size;
-  ROS_INFO("New marker_size_: %f", marker_size_);
-  delta_width_qr_center_ = config.delta_width_qr_center;
-  ROS_INFO("New delta_width_qr_center_: %f", delta_width_qr_center_);
-  delta_height_qr_center_ = config.delta_height_qr_center;
-  ROS_INFO("New delta_height_qr_center_: %f", delta_height_qr_center_);
-}
-
-void warmup_callback(const std_msgs::Empty::ConstPtr &msg) {
-  WARMUP_DONE = !WARMUP_DONE;
-  if (WARMUP_DONE) {
-    ROS_INFO("Warm up done, pattern detection started");
-  } else {
-    ROS_INFO("Detection stopped. Warm up mode activated");
-  }
-}
-
-// SWAN: duplicated without camera info
+  // SWAN: duplicated here!!!
 void imageCallback_NoCameraInfo(const sensor_msgs::ImageConstPtr &msg)
 {
   frames_proc_++;
@@ -622,7 +577,8 @@ void imageCallback_NoCameraInfo(const sensor_msgs::ImageConstPtr &msg)
   // Marker 3 -> aRuCo ID: 3
 
   std::vector<std::vector<cv::Point3f>> boardCorners;
-  std::vector<cv::Point3f> boardCircleCenters;
+std:
+  vector<cv::Point3f> boardCircleCenters;
   float width = delta_width_qr_center_;
   float height = delta_height_qr_center_;
   float circle_width = delta_width_circles_ / 2.;
@@ -951,8 +907,27 @@ void imageCallback_NoCameraInfo(const sensor_msgs::ImageConstPtr &msg)
   }
 }
 
-int main(int argc, char **argv) 
-{
+void param_callback(velo2cam_calibration::MonocularConfig &config,
+                    uint32_t level) {
+  marker_size_ = config.marker_size;
+  ROS_INFO("New marker_size_: %f", marker_size_);
+  delta_width_qr_center_ = config.delta_width_qr_center;
+  ROS_INFO("New delta_width_qr_center_: %f", delta_width_qr_center_);
+  delta_height_qr_center_ = config.delta_height_qr_center;
+  ROS_INFO("New delta_height_qr_center_: %f", delta_height_qr_center_);
+}
+
+void warmup_callback(const std_msgs::Empty::ConstPtr &msg) {
+  WARMUP_DONE = !WARMUP_DONE;
+  if (WARMUP_DONE) {
+    ROS_INFO("Warm up done, pattern detection started");
+  } else {
+    ROS_INFO("Detection stopped. Warm up mode activated");
+  }
+}
+
+
+int main(int argc, char **argv) {
   ros::init(argc, argv, "mono_qr_pattern");
   ros::NodeHandle nh;
   ros::NodeHandle nh_("~");
@@ -990,6 +965,8 @@ int main(int argc, char **argv)
   string image_topic, cinfo_topic;
   nh_.param<string>("image_topic", image_topic, "/blackflys/image_raw");
   nh_.param<string>("cinfo_topic", cinfo_topic, "/blackflys/camera_info");
+  // nh_.param<string>("image_topic", image_topic, "/camera/image_raw");
+  // nh_.param<string>("cinfo_topic", cinfo_topic, "/no_camera_info");
 
   if (DEBUG)
   {
@@ -1001,23 +978,19 @@ int main(int argc, char **argv)
 
   // SWAN
   bool w_camera_info = cinfo_topic.compare("/no_camera_info") != 0;
-  
-  message_filters::Subscriber<sensor_msgs::Image> image_sub(nh_, image_topic, 1);
-  message_filters::Subscriber<sensor_msgs::CameraInfo> cinfo_sub(nh_, cinfo_topic, 1);
-
-  message_filters::TimeSynchronizer<sensor_msgs::Image, sensor_msgs::CameraInfo>
-      sync(image_sub, cinfo_sub, 10);
-  ros::Subscriber sub;
-  
   if (w_camera_info)
   {
-    ROS_INFO("********* [SWAN] Yes, w/ Camera Info ************");  
+    ROS_INFO("*********sdfsdafabafasdf************");
+    message_filters::Subscriber<sensor_msgs::Image> image_sub(nh_, image_topic, 1);
+    message_filters::Subscriber<sensor_msgs::CameraInfo> cinfo_sub(nh_, cinfo_topic, 1);
+
+    message_filters::TimeSynchronizer<sensor_msgs::Image, sensor_msgs::CameraInfo>
+        sync(image_sub, cinfo_sub, 10);
     sync.registerCallback(boost::bind(&imageCallback, _1, _2));
   }
   else
   {
-    ROS_INFO("********* [SWAN] No, w/o Camera Info ************"); 
-    sub = nh_.subscribe(image_topic, 1, imageCallback_NoCameraInfo);
+    ros::Subscriber sub = nh_.subscribe(image_topic, 1, imageCallback_NoCameraInfo);
   }
 
   // ROS param callback

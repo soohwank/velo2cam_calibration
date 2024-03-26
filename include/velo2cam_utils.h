@@ -27,7 +27,7 @@
 #define velo2cam_utils_H
 
 #define PCL_NO_PRECOMPILE
-#define DEBUG 0
+#define DEBUG 1 // SWAN: Let's see everything!!!
 
 #include <pcl/search/kdtree.h>
 #include <pcl/segmentation/extract_clusters.h>

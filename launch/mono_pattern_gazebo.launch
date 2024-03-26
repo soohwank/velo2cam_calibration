@@ -13,6 +13,7 @@
         <param name="image_topic" value="$(arg camera_name)/$(arg image_topic)" />
         <param name="cinfo_topic" value="$(arg camera_name)/camera_info" />
         <param name="marker_size" value="$(arg marker_size)"/>
+        <param name="save_to_file" value="true"/>     <!-- center point dump -->
     </node>
 
     <node pkg="tf" type="static_transform_publisher" name="camera_ros_tf_$(arg sensor_id)" args="0 0 0 -1.57079632679 0 -1.57079632679 rotated_$(arg frame_name) $(arg frame_name) 10"/>

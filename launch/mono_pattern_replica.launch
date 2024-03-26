@@ -1,9 +1,9 @@
 <launch>
 
     <arg name="stdout" default="screen" />
-    <arg name="camera_name" default="/blackflys" />
+    <arg name="camera_name" default="/camera" />
     <arg name="image_topic" default="image_raw" />
-    <arg name="frame_name" default="blackflys" />
+    <arg name="frame_name" default="camera" />
     <arg name="sensor_id" default="0" />
 
     <!-- Marker size (side) in meters -->
@@ -11,7 +11,11 @@
 
     <node pkg="velo2cam_calibration" type="mono_qr_pattern" name="mono_pattern_$(arg sensor_id)" output="$(arg stdout)">
         <param name="image_topic" value="$(arg camera_name)/$(arg image_topic)" />
-        <param name="cinfo_topic" value="$(arg camera_name)/camera_info" />
+        
+        <!-- SWAN: no camera info -->
+        <param name="cinfo_topic" value="/no_camera_info" />
+        <!-- -->
+
         <param name="marker_size" value="$(arg marker_size)"/>
     </node>
 
