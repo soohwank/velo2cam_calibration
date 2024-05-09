@@ -372,6 +372,8 @@ void sensor1_callback(const velo2cam_calibration::ClusterCentroids::ConstPtr sen
     std::ostringstream sstream;
     sstream << "rotated_" << sensor1_frame_id;
     sensor1_rotated_frame_id = sstream.str();
+    cout << "[SWAN] sensor1_rotated_frame_id = " << sensor1_rotated_frame_id << endl;
+    cout << "[SWAN] sensor1_frame_id = " << sensor1_frame_id << endl;
 
     pcl::PointCloud<pcl::PointXYZ>::Ptr xy_sensor1_cloud(
         new pcl::PointCloud<pcl::PointXYZ>());

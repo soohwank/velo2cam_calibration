@@ -1,0 +1,69 @@
+<launch>
+
+  <arg name="stdout" default="screen" />
+  <arg name="cloud_topic" default="/velodyne_points" />
+  <arg name="sensor_id" default="0" />
+
+  <node pkg="nodelet" type="nodelet" name="pcl_manager_$(arg sensor_id)" args="manager" output="$(arg stdout)"/>
+
+  <node pkg="nodelet" type="nodelet" name="pass_through_z_velo_$(arg sensor_id)" args="load pcl/PassThrough pcl_manager_$(arg sensor_id)" output="$(arg stdout)">
+    <remap from="~input" to="$(arg cloud_topic)" />
+    <remap from="~output" to="/lidar_pattern_$(arg sensor_id)/z_filtered" />
+    <rosparam>
+      filter_field_name: z
+      filter_limit_min: -0.6
+      filter_limit_max:  0.6
+      filter_limit_negative: False
+      max_queue_size: 1
+    </rosparam>
+  </node>
+
+  <node pkg="nodelet" type="nodelet" name="pass_through_y_velo_$(arg sensor_id)" args="load pcl/PassThrough pcl_manager_$(arg sensor_id)" output="$(arg stdout)">
+    <remap from="~input" to="/lidar_pattern_$(arg sensor_id)/z_filtered" />
+    <remap from="~output" to="/lidar_pattern_$(arg sensor_id)/zy_filtered" />
+    <rosparam>
+      filter_field_name: y
+      filter_limit_min: -0.7
+      filter_limit_max:  0.8
+      filter_limit_negative: False
+      max_queue_size: 1
+    </rosparam>
+  </node>
+
+  <node pkg="nodelet" type="nodelet" name="pass_through_x_velo_$(arg sensor_id)" args="load pcl/PassThrough pcl_manager_$(arg sensor_id)" output="$(arg stdout)">
+    <remap from="~input" to="/lidar_pattern_$(arg sensor_id)/zy_filtered" />
+    <remap from="~output" to="/lidar_pattern_$(arg sensor_id)/zyx_filtered" />
+    <rosparam>
+      filter_field_name: x
+      filter_limit_min: 1.0
+      filter_limit_max: 5.0
+      filter_limit_negative: False
+      max_queue_size: 1
+    </rosparam>
+  </node>
+
+  <!-- SWAN 
+    zyx_filtered: input point cloud for velo2cam
+    range_filtered_cloud: point cloud for RANSAC plane fitting
+  -->
+  <node pkg="velo2cam_calibration" type="lidar_pattern" name="lidar_pattern_$(arg sensor_id)" output="screen">
+
+    <!-- SWAN: input options -->
+    <param name="rings_count" value="32"/>        <!-- number of lidar channels -->
+    <param name="gradient_threshold" value="0.1"/> <!-- range increment for the holes -->
+    <!-- SWAN -->
+
+    <!-- SWAN: rviz outputs (DEBUG = 1)
+    /lidar_pattern_0/pattern_circles: circle points on the plane
+    /lidar_pattern_0/cumulative_cloud: circle points on the plane
+    /lidar_pattern_0/centers_cloud: final circle points
+    -->    
+
+    <remap from="~cloud1" to="/lidar_pattern_$(arg sensor_id)/zyx_filtered"/>
+    <rosparam>
+      passthrough_radius_min: 1.0
+      passthrough_radius_max: 3.0
+    </rosparam>
+  </node>
+
+</launch>

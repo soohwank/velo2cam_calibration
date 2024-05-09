@@ -3,6 +3,38 @@ project(velo2cam_calibration)
 
 SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++14 -w ")
 
+#find_package(OpenCV REQUIRED)
+#set(OpenCV_DIR ~/Downloads/opencv/opencv/build)
+#message(OPENCV_DIR)
+#message("${OPENCV_DIR}")
+#find_package(OpenCV REQUIRED)
+#include_directories(${OpenCV_INCLUDE_DIRS})
+#message(OpenCV_LIBRARIES="${OpenCV_LIBRARIES}")
+#message(OpenCV_DIR="${OpenCV_DIR}")
+#message(OpenCV_INCLUDE_DIRS="${OpenCV_INCLUDE_DIRS}")
+#SET(OpenCV_DIR /home/rdv/Downloads/opencv/opencv/build)
+#set(opencv_contrib ON)
+
+# set(OpenCV_DIR /home/rdv/Downloads/opencv/opencv/build_4.2.0)
+# set(OpenCV_LIBRARIES /home/rdv/Downloads/opencv/opencv/build_4.2.0/lib)
+
+
+# find_package(OpenCV 4.2.0 REQUIRED)
+find_package(OpenCV REQUIRED)
+message(STATUS "OpenCV library status:")
+message(STATUS "    config: ${OpenCV_DIR}")
+message(STATUS "    version: ${OpenCV_VERSION}")
+message(STATUS "    libraries: ${OpenCV_LIBS}")
+message(STATUS "    include path: ${OpenCV_INCLUDE_DIRS}")
+#SET(cv_bridge_DIR /opt/ros/noetic/share/cv_bridge/cmake/)
+#pkg-config --modversion opencv
+#sudo apt-get purge libopencv* python-opencv
+#set(OpenCV_LIBRARIES ${OpenCV_LIBS})
+
+#export PATH=/home/rdv/Downloads/opencv/opencv/build/bin/:$PATH
+#export LD_LIBRARY_PATH=/home/rdv/Downloads/opencv/opencv/build/lib/:$LD_LIBRARY_PATH
+#cmake -D CMAKE_BUILD_TYPE=RELEASE -D CMAKE_INSTALL_PREFIX=/usr/local -D INSTALL_C_EXAMPLES=ON -D INSTALL_PYTHON_EXAMPLES=ON -D WITH_TBB=ON -D WITH_V4L=ON -D OPENCV_EXTRA_MODULES_PATH=~/Downloads/opencv/opencv_contrib/modules -D OPENCV_ENABLE_NONFREE=ON -D WITH_CUDA=OFF -D BUILD_EXAMPLES=ON ..
+
 ## Find catkin macros and libraries
 find_package(catkin REQUIRED COMPONENTS
   cv_bridge
@@ -21,7 +53,6 @@ find_package(catkin REQUIRED COMPONENTS
 )
 
 find_package(TinyXML REQUIRED)
-find_package(OpenCV REQUIRED)
 
 generate_dynamic_reconfigure_options(
   cfg/Lidar.cfg
@@ -54,13 +85,14 @@ catkin_package(
   DEPENDS TinyXML
 )
 
+
 ###########
 ## Build ##
 ###########
 include_directories(
   include
   ${catkin_INCLUDE_DIRS}
-  ${OpenCV_LIBRARIES}
+  ${OpenCV_INCLUDE_DIRS} #${OpenCV_LIBRARIES}
   ${TinyXML_INCLUDE_DIRS}
 )
 
@@ -104,19 +136,19 @@ add_dependencies(v2c_plane_segmentation ${PROJECT_NAME}_gencfg)
 ## Specify libraries to link a library or executable target against
 target_link_libraries(stereo_pattern
   ${catkin_LIBRARIES}
-  ${OpenCV_LIBRARIES}
+  ${OpenCV_LIBS} # ${OpenCV_LIBRARIES}
 )
 target_link_libraries(lidar_pattern
   ${catkin_LIBRARIES}
-  ${OpenCV_LIBRARIES}
+  ${OpenCV_LIBS} # ${OpenCV_LIBRARIES}
 )
 target_link_libraries(mono_qr_pattern
   ${catkin_LIBRARIES}
-  ${OpenCV_LIBRARIES}
+  ${OpenCV_LIBS} # ${OpenCV_LIBRARIES}
 )
 target_link_libraries(velo2cam_calibration
   ${catkin_LIBRARIES}
-  ${OpenCV_LIBRARIES}
+  ${OpenCV_LIBS} # ${OpenCV_LIBRARIES}
   ${TinyXML_LIBRARIES}
 )
 target_link_libraries(v2c_plane_segmentation
@@ -124,5 +156,5 @@ target_link_libraries(v2c_plane_segmentation
 )
 target_link_libraries(v2c_disp_masker
   ${catkin_LIBRARIES}
-  ${OpenCV_LIBRARIES}
+  ${OpenCV_LIBS} # ${OpenCV_LIBRARIES}
 )
