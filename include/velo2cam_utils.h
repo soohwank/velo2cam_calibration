@@ -237,10 +237,16 @@ void getCenterClusters(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_in,
   }
 }
 
-Eigen::Affine3f getRotationMatrix(Eigen::Vector3f source,
-                                  Eigen::Vector3f target) {
+Eigen::Affine3f getRotationMatrix(Eigen::Vector3f source, // SWAN: source = Vs
+                                  Eigen::Vector3f target) // SWAN: target = Vt
+{
+  // SWAN: rotation axis(unit vector): Vr = Vt x Vs
   Eigen::Vector3f rotation_vector = target.cross(source);
   rotation_vector.normalize();
+
+  //                                               Vs.z                  Vs.z
+  // SWAN: rotation angle(radian): theta = cos^{-1}----  -> cos(theta) = ----
+  //                                               |Vs|                  |Vs|
   double theta = acos(source[2] / sqrt(pow(source[0], 2) + pow(source[1], 2) +
                                        pow(source[2], 2)));
 

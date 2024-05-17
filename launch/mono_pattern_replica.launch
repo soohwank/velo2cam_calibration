@@ -14,6 +14,17 @@
         
         <!-- SWAN: no camera info -->
         <param name="cinfo_topic" value="/no_camera_info" />
+
+        <param name="fx" value="1053.317761" />
+        <param name="fy" value="1053.098120" />
+        <param name="cx" value="966.701528"  />
+        <param name="cy" value="607.956075"  />
+
+        <param name="k1" value="-0.143641"   />
+        <param name="k2" value="0.059996"    />
+        <param name="p1" value="-0.000430"   />
+        <param name="p2" value="-0.000093"   />
+        <param name="k3" value="0.000000"    />
         <!-- -->
 
         <param name="marker_size" value="$(arg marker_size)"/>

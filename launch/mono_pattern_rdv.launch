@@ -13,7 +13,36 @@
         <param name="image_topic" value="$(arg camera_name)/$(arg image_topic)" />
         
         <!-- SWAN: no camera info -->
-        <param name="cinfo_topic" value="/zed2i_front/zed2i_front/left_raw/camera_info" />
+        <!-- <param name="cinfo_topic" value="/zed2i_front/zed2i_front/left_raw/camera_info" /> -->
+
+        <param name="cinfo_topic" value="/no_camera_info" />
+
+        <!--
+        <param name="fx" value="1069.3499755859375"     />
+        <param name="fy" value="1070.1400146484375"     />
+        <param name="cx" value="966.22998046875"        />
+        <param name="cy" value="524.6110229492188"      />
+        
+        <param name="k1" value="-1.0234500169754028"    />
+        <param name="k2" value="2.4007298946380615"     />
+        <param name="p1" value="0.09410110116004944"    />
+        <param name="p2" value="0.00017518400272820145" />
+        <param name="k3" value="0.0001761150051606819"  />
+        -->
+
+        <param name="fx" value="1069.35"     />
+        <param name="fy" value="1070.14"     />
+        <!--
+        <param name="cx" value="1110.23"     />
+        <param name="cy" value="605.611"     />
+        -->
+        <param name="cx" value="966.23"      />
+        <param name="cy" value="524.611"     />
+        <param name="k1" value="-0.0741713"  />
+        <param name="k2" value="0.0610622"   />
+        <param name="p1" value="0.000193037" />
+        <param name="p2" value="0.000401291" />
+        <param name="k3" value="-0.0260919"  />
         <!-- -->
 
         <param name="marker_size" value="$(arg marker_size)"/>

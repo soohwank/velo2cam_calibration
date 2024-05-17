@@ -13,5 +13,6 @@
     <param name="is_sensor2_cam" value="false" unless="$(eval sensor2_type == 'mono' or sensor2_type == 'stereo')"/>
     <param name="is_sensor1_cam" value="true" if="$(eval sensor1_type == 'mono' or sensor1_type == 'stereo')"/>
     <param name="is_sensor2_cam" value="true" if="$(eval sensor2_type == 'mono' or sensor2_type == 'stereo')"/>
+    <param name="save_to_file" value="true"/>     <!-- center point dump -->
   </node>
 </launch>

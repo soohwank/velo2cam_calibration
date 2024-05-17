@@ -39,8 +39,91 @@
 #include <velo2cam_calibration/ClusterCentroids.h>
 #include <velo2cam_utils.h>
 
+// SWAN: opencv for reprojection errors
+#include <opencv2/opencv.hpp>
+using namespace cv;
+
+// SWAN: camera matrix and distortion coefficients from the launch file
+Mat cameraMatrix(3, 3, CV_32F);
+Mat distCoeffs(1, 5, CV_32F);
+
+// SWAN: copy a utility function from mono_qr_pattern.cpp
+Point2f projectPointDist(cv::Point3f pt_cv, const Mat intrinsics,
+                         const Mat distCoeffs) {
+  // Project a 3D point taking into account distortion
+  vector<Point3f> input{pt_cv};
+  vector<Point2f> projectedPoints;
+  projectedPoints.resize(
+      1);  // TODO: Do it batched? (cv::circle is not batched anyway)
+  projectPoints(input, Mat::zeros(3, 1, CV_64FC1), Mat::zeros(3, 1, CV_64FC1),
+                intrinsics, distCoeffs, projectedPoints);
+  return projectedPoints[0];
+}
+
+Eigen::MatrixXf reviseTransformation(Eigen::Matrix4f &L_T_C_ROS)
+{
+  // R
+  Eigen::MatrixXf L_R_C_ROS(3, 3);
+  L_R_C_ROS(0, 0) = L_T_C_ROS(0, 0);
+  L_R_C_ROS(0, 1) = L_T_C_ROS(0, 1);
+  L_R_C_ROS(0, 2) = L_T_C_ROS(0, 2);
+  L_R_C_ROS(1, 0) = L_T_C_ROS(1, 0);
+  L_R_C_ROS(1, 1) = L_T_C_ROS(1, 1);
+  L_R_C_ROS(1, 2) = L_T_C_ROS(1, 2);
+  L_R_C_ROS(2, 0) = L_T_C_ROS(2, 0);
+  L_R_C_ROS(2, 1) = L_T_C_ROS(2, 1);
+  L_R_C_ROS(2, 2) = L_T_C_ROS(2, 2);
+
+  // t
+  Eigen::MatrixXf L_t_C_ROS(3, 1);
+  L_t_C_ROS(0, 0) = L_T_C_ROS(0, 3);
+  L_t_C_ROS(1, 0) = L_T_C_ROS(1, 3);
+  L_t_C_ROS(2, 0) = L_T_C_ROS(2, 3);
+
+  // C_T_L: transform points from lidar coords to camera coords
+  Eigen::MatrixXf C_ROS_R_L(3,3);
+  Eigen::MatrixXf C_ROS_t_L(3,1);
+  C_ROS_R_L = L_R_C_ROS.transpose();
+  C_ROS_t_L = - C_ROS_R_L * L_t_C_ROS;  
+
+  // translation from ROS camera to conventional camera
+  //
+  //      <ROS camera>               <camera>
+  //
+  //       (forward)    X                  z (forward)
+  //           (up) Z   ^                  ^
+  //                ^  /                  /
+  //                | /                  /
+  //                |/                  /
+  // (left) Y <------                  --------> x (right)
+  //                                   |
+  //                                   |
+  //                                   |
+  //                                   v
+  //                                   y (down)
+
+  // SWAN: Why is the rotation matrix transposed???
+  Eigen::MatrixXf C_ROS_T_L(4,4); // translation matrix lidar-camera
+  C_ROS_T_L << C_ROS_R_L(0), C_ROS_R_L(3), C_ROS_R_L(6), C_ROS_t_L(0),
+               C_ROS_R_L(1), C_ROS_R_L(4), C_ROS_R_L(7), C_ROS_t_L(1),
+               C_ROS_R_L(2), C_ROS_R_L(5), C_ROS_R_L(8), C_ROS_t_L(2),
+               0,        0,        0,        1;
+
+  Eigen::MatrixXf C_T_C_ROS(4,4);
+  C_T_C_ROS <<  0, -1,  0,  0,   // x = -Y
+                0,  0, -1,  0,   // y = -Z
+                1,  0,  0,  0,   // z = X
+                0,  0,  0,  1;
+  
+  Eigen::MatrixXf C_T_L = C_T_C_ROS * C_ROS_T_L;
+
+  return C_T_L;
+}
+
 using namespace std;
 using namespace sensor_msgs;
+
+
 
 ros::Publisher clusters_sensor2_pub, clusters_sensor1_pub;
 ros::Publisher colour_sensor2_pub, colour_sensor1_pub;
@@ -49,9 +132,20 @@ ros::Publisher iterations_pub;
 int nFrames;
 bool sensor1Received, sensor2Received;
 
-pcl::PointCloud<pcl::PointXYZ>::Ptr sensor1_cloud, sensor2_cloud;
-pcl::PointCloud<pcl::PointXYZI>::Ptr isensor1_cloud, isensor2_cloud;
-std::vector<pcl::PointXYZ> sensor1_vector(4), sensor2_vector(4);
+// SWAN: Cp
+std::vector<pcl::PointXYZ> sensor1_vector(4);         // SWAN: Cp for the current target pose
+pcl::PointCloud<pcl::PointXYZ>::Ptr sensor1_cloud;    // SWAN: Cp for all target poses
+pcl::PointCloud<pcl::PointXYZI>::Ptr isensor1_cloud;  // SWAN: Cp for all target poses with intensity increased by 0.3
+std::vector<std::vector<std::tuple<int, int, pcl::PointCloud<pcl::PointXYZ>,
+                                   std::vector<pcl::PointXYZ>>>>
+    sensor1_buffer;                                   // SWAN: Cp for all target poses
+
+std::vector<pcl::PointXYZ> sensor2_vector(4);         // SWAN: Lp for the current target pose
+pcl::PointCloud<pcl::PointXYZ>::Ptr sensor2_cloud;    // SWAN: Lp for all target poses
+pcl::PointCloud<pcl::PointXYZI>::Ptr isensor2_cloud;  // SWAN: Lp for all target poses with intensity increased by 0.3
+std::vector<std::vector<std::tuple<int, int, pcl::PointCloud<pcl::PointXYZ>,
+                                   std::vector<pcl::PointXYZ>>>>
+    sensor2_buffer;                                   // SWAN: Lp for all target poses
 
 tf::StampedTransform tf_sensor1_sensor2;
 
@@ -67,16 +161,9 @@ typedef Eigen::Matrix<double, 12, 1> Vector12d;
 
 tf::Transform transf;
 
-std::vector<std::vector<std::tuple<int, int, pcl::PointCloud<pcl::PointXYZ>,
-                                   std::vector<pcl::PointXYZ>>>>
-    sensor1_buffer;
-std::vector<std::vector<std::tuple<int, int, pcl::PointCloud<pcl::PointXYZ>,
-                                   std::vector<pcl::PointXYZ>>>>
-    sensor2_buffer;
-
 int S1_WARMUP_COUNT = 0, S2_WARMUP_COUNT = 0;
 bool S1_WARMUP_DONE = false, S2_WARMUP_DONE = false;
-int TARGET_POSITIONS_COUNT = 0;
+int TARGET_POSITIONS_COUNT = 0; // SWAN: Number of Target Poses
 int TARGET_ITERATIONS = 30;
 
 bool sync_iterations;
@@ -216,63 +303,16 @@ void calibrateExtrinsics(int seek_iter = -1) {
     sorted_centers2->push_back(local_sensor2_vector[i]);
   }
 
+  // SWAN: final_transformation = L_T_C_ROS
+  //       sorted_centers1: C_ROS_p1 in Camera ROS coords (camera-extracted points in Camera ROS coords)
+  //       sorted_centers2: L_p2 in LiDAR coords          ( lidar-extracted points in LiDAR      coords)
   Eigen::Matrix4f final_transformation;
   const pcl::registration::TransformationEstimationSVD<pcl::PointXYZ,
                                                        pcl::PointXYZ>
       trans_est_svd(true);
-  trans_est_svd.estimateRigidTransformation(*sorted_centers1, *sorted_centers2,
+  trans_est_svd.estimateRigidTransformation(*sorted_centers1, // SWAN: source = mono camera
+                                            *sorted_centers2, // SWAN: target = lidar
                                             final_transformation);
-
-  // SWAN: print two point clouds
-  {
-    int pt_count;
-
-    ROS_INFO("[SWAN] *** Sensor 1 (Camera) ***");
-    pt_count = 0;
-    for (const auto& pt: sorted_centers1->points)
-    {
-      ROS_INFO("C_p_%d = (%f, %f, %f)", pt_count, pt.x, pt.y, pt.z);
-      pt_count++;
-    }
-
-    ROS_INFO("[SWAN] *** Sensor 2 (LiDAR) ***");
-    pt_count = 0;
-    for (const auto& pt: sorted_centers2->points)
-    {
-      ROS_INFO("L_p_%d = (%f, %f, %f)", pt_count, pt.x, pt.y, pt.z);
-      pt_count++;
-    }
-
-    ROS_INFO("[SWAN] *** Transformation ***");
-    for (int row = 0; row < 4; row++)
-    {
-      ROS_INFO("%f, %f, %f, %f", final_transformation(row, 0),
-                                 final_transformation(row, 1),
-                                 final_transformation(row, 2),
-                                 final_transformation(row, 3));
-    }
-
-    ROS_INFO("[SWAN] *** Compare ***");
-    pt_count = 0;
-    pcl::PointCloud<pcl::PointXYZ>::iterator it1 = sorted_centers1->begin();
-    pcl::PointCloud<pcl::PointXYZ>::iterator it2 = sorted_centers2->begin();
-    for(; it1 != sorted_centers1->end(); it1++, it2++)
-    {
-      // Points
-      pcl::PointXYZ &Cp = *it1;
-      pcl::PointXYZ &Lp = *it2;
-
-      // Lp = L_T_C * C_p
-      pcl::PointXYZ Lp_(final_transformation(0, 0)*(Cp.x) + final_transformation(0, 1)*(Cp.y) + final_transformation(0, 2)*(Cp.z) + final_transformation(0, 3),
-                        final_transformation(1, 0)*(Cp.x) + final_transformation(1, 1)*(Cp.y) + final_transformation(1, 2)*(Cp.z) + final_transformation(1, 3),
-                        final_transformation(2, 0)*(Cp.x) + final_transformation(2, 1)*(Cp.y) + final_transformation(2, 2)*(Cp.z) + final_transformation(2, 3));
-      
-      // Error
-      float error = sqrt(powf(Lp.x - Lp_.x, 2) + powf(Lp.y - Lp_.y, 2) + powf(Lp.z - Lp_.z, 2));
-      ROS_INFO("Error_%d = %f", pt_count, error);
-      pt_count++;
-    }
-  }
 
   tf::Matrix3x3 tf3d;
   tf3d.setValue(final_transformation(0, 0), final_transformation(0, 1), final_transformation(0, 2),
@@ -313,6 +353,162 @@ void calibrateExtrinsics(int seek_iter = -1) {
   cout << "Extrinsic parameters:" << endl;
   cout << "x = " << xt << "\ty = " << yt << "\tz = " << zt << endl;
   cout << "roll = " << roll << "\tpitch = " << pitch << "\tyaw = " << yaw << endl;
+
+  // SWAN: Print Results
+  {
+    int pt_count;
+
+    ROS_INFO("[SWAN] *** Sensor 1 (Camera): camera-extracted points in Camera ROS coords  ***");
+    if (save_to_file_) savefile << endl << "[SWAN] *** Sensor 1 (Camera): camera-extracted points in Camera ROS coords ***" << endl;
+    pt_count = 0;
+    for (const auto& pt: sorted_centers1->points)
+    {
+      ROS_INFO("C_ROS_p1_%d = (%f, %f, %f)", pt_count, pt.x, pt.y, pt.z);
+      if (save_to_file_) savefile << "C_ROS_p1_" << pt_count << " = (" << pt.x << ", " << pt.y << ", " << pt.z << ")" << endl;
+      pt_count++;
+    }
+
+    ROS_INFO("[SWAN] *** Sensor 2 (LiDAR): lidar-extracted points in LiDAR coords ***");
+    if (save_to_file_) savefile << endl << "[SWAN] *** Sensor 2 (LiDAR): lidar-extracted points in LiDAR coords ***" << endl;
+    pt_count = 0;
+    for (const auto& pt: sorted_centers2->points)
+    {
+      ROS_INFO("L_p2_%d = (%f, %f, %f)", pt_count, pt.x, pt.y, pt.z);
+      if (save_to_file_) savefile << "L_p2_" << pt_count << " = (" << pt.x << ", " << pt.y << ", " << pt.z << ")" << endl;
+      pt_count++;
+    }
+
+    ROS_INFO("[SWAN] *** Transformation: L_T_C_ROS ***");
+    if (save_to_file_) savefile << endl << "[SWAN] *** Transformation: L_T_C_ROS ***" << endl;
+    for (int row = 0; row < 4; row++)
+    {
+      ROS_INFO("%f, %f, %f, %f", final_transformation(row, 0),
+                                 final_transformation(row, 1),
+                                 final_transformation(row, 2),
+                                 final_transformation(row, 3));
+      if (save_to_file_) savefile << final_transformation(row, 0) << ", " 
+                                  << final_transformation(row, 1) << ", " 
+                                  << final_transformation(row, 2) << ", " 
+                                  << final_transformation(row, 3) << endl;
+    }
+
+    ROS_INFO("[SWAN] *** 3D-3D Error ***");
+    if (save_to_file_) savefile << endl << "[SWAN] *** 3D-3D Error ***" << endl;
+    pt_count = 0;
+    float total_error = 0.f;
+    pcl::PointCloud<pcl::PointXYZ>::iterator it1 = sorted_centers1->begin();
+    pcl::PointCloud<pcl::PointXYZ>::iterator it2 = sorted_centers2->begin();
+    for(; it1 != sorted_centers1->end(); it1++, it2++)
+    {
+      // Points
+      pcl::PointXYZ &S_p1 = *it1; // source points in Source coords
+      pcl::PointXYZ &T_p2 = *it2; // target points in Target coords
+
+      // T_p1 = T_T_S * S_p1
+      pcl::PointXYZ T_p1(final_transformation(0, 0)*(S_p1.x) + final_transformation(0, 1)*(S_p1.y) + final_transformation(0, 2)*(S_p1.z) + final_transformation(0, 3),
+                         final_transformation(1, 0)*(S_p1.x) + final_transformation(1, 1)*(S_p1.y) + final_transformation(1, 2)*(S_p1.z) + final_transformation(1, 3),
+                         final_transformation(2, 0)*(S_p1.x) + final_transformation(2, 1)*(S_p1.y) + final_transformation(2, 2)*(S_p1.z) + final_transformation(2, 3));
+      
+      // Error in Camera coords
+      float error = sqrt(powf(T_p2.x - T_p1.x, 2) + powf(T_p2.y - T_p1.y, 2) + powf(T_p2.z - T_p1.z, 2));
+      ROS_INFO("Error_%d = %f", pt_count, error);
+      if (save_to_file_) savefile << "Error_" << pt_count << " = " << error << endl;
+      pt_count++;
+      total_error += error;
+    }
+    float average_error = total_error / (float) pt_count;
+    ROS_INFO("Average 3D-3D Error = %f", average_error);
+    if (save_to_file_) savefile << "Average 3D-3D Error = " << average_error << endl;
+
+
+    ROS_INFO("[SWAN] *** 3D-2D Error ***");
+    if (save_to_file_) savefile << endl << "[SWAN] *** 3D-2D Error ***" << endl;
+   
+    pt_count = 0;
+    total_error = 0.f;
+    it1 = sorted_centers1->begin();
+    it2 = sorted_centers2->begin();
+
+    // L_T_C_ROS
+    Eigen::Matrix4f L_T_C_ROS = final_transformation;
+
+    // C_T_L
+    Eigen::MatrixXf C_T_L = reviseTransformation(L_T_C_ROS);
+
+    // C_T_C_ROS
+    Eigen::MatrixXf C_T_C_ROS = C_T_L * L_T_C_ROS;
+
+    for(; it1 != sorted_centers1->end(); it1++, it2++)
+    {
+      // Points in OpenCV
+      cv::Point3f C_ROS_p1(it1->x, it1->y, it1->z);
+      cv::Point3f L_p2(it2->x, it2->y, it2->z);
+      ROS_INFO("3D: C_ROS_p1_%d = (%f, %f, %f)", pt_count, C_ROS_p1.x, C_ROS_p1.y, C_ROS_p1.z);
+      ROS_INFO("3D: L_p2_%d = (%f, %f, %f)", pt_count, L_p2.x, L_p2.y, L_p2.z);
+
+      // C_p1 = C_T_C_ROS * C_ROS_p1
+      cv::Point3f C_p1(C_T_C_ROS(0, 0)*(C_ROS_p1.x) + C_T_C_ROS(0, 1)*(C_ROS_p1.y) + C_T_C_ROS(0, 2)*(C_ROS_p1.z) + C_T_C_ROS(0, 3),
+                       C_T_C_ROS(1, 0)*(C_ROS_p1.x) + C_T_C_ROS(1, 1)*(C_ROS_p1.y) + C_T_C_ROS(1, 2)*(C_ROS_p1.z) + C_T_C_ROS(1, 3),
+                       C_T_C_ROS(2, 0)*(C_ROS_p1.x) + C_T_C_ROS(2, 1)*(C_ROS_p1.y) + C_T_C_ROS(2, 2)*(C_ROS_p1.z) + C_T_C_ROS(2, 3));
+
+      ROS_INFO("3D: C_p1_%d = (%f, %f, %f)", pt_count, C_p1.x, C_p1.y, C_p1.z);
+
+      // C_p2 = C_T_L * L_p2
+      cv::Point3f C_p2(C_T_L(0, 0)*(L_p2.x) + C_T_L(0, 1)*(L_p2.y) + C_T_L(0, 2)*(L_p2.z) + C_T_L(0, 3),
+                       C_T_L(1, 0)*(L_p2.x) + C_T_L(1, 1)*(L_p2.y) + C_T_L(1, 2)*(L_p2.z) + C_T_L(1, 3),
+                       C_T_L(2, 0)*(L_p2.x) + C_T_L(2, 1)*(L_p2.y) + C_T_L(2, 2)*(L_p2.z) + C_T_L(2, 3));
+
+      cv::Point2f uv_C = projectPointDist(C_p1, cameraMatrix, distCoeffs);
+      cv::Point2f uv_L = projectPointDist(C_p2, cameraMatrix, distCoeffs);
+      ROS_INFO("2D: I_p1_%d = (%f, %f)", pt_count, uv_C.x, uv_C.y);
+      ROS_INFO("2D: I_p2_%d = (%f, %f)", pt_count, uv_L.x, uv_L.y);
+      
+      // Error in image coords
+      float error = sqrt(powf(uv_C.x - uv_L.x, 2) + powf(uv_C.y - uv_L.y, 2));
+      ROS_INFO("Error_%d = %f", pt_count, error);
+      if (save_to_file_) savefile << "Error_" << pt_count << " = " << error << endl;
+      pt_count++;
+      total_error += error;
+    }
+    average_error = total_error / (float) pt_count;
+    ROS_INFO("Average 3D-2D Reprojection Error = %f", average_error);
+    if (save_to_file_) savefile << "Average 3D-2D Reprojection Error = " << average_error << endl;
+
+    ROS_INFO("[SWAN] *** PC on Image ***");
+    if (save_to_file_) savefile << endl << "[SWAN] *** PC on Image ***" << endl;
+
+    // intrinsics: K
+    ROS_INFO("camera_matrix: [%f, %f, %f, 0.0,", cameraMatrix.at<float>(0, 0), cameraMatrix.at<float>(0, 1), cameraMatrix.at<float>(0, 2));
+    ROS_INFO("                %f, %f, %f, 0.0,", cameraMatrix.at<float>(1, 0), cameraMatrix.at<float>(1, 1), cameraMatrix.at<float>(1, 2));
+    ROS_INFO("                %f, %f, %f, 0.0]", cameraMatrix.at<float>(2, 0), cameraMatrix.at<float>(2, 1), cameraMatrix.at<float>(2, 2));
+    if (save_to_file_) savefile << "camera_matrix: [" << cameraMatrix.at<float>(0, 0) << ", " << cameraMatrix.at<float>(0, 1) << ", " << cameraMatrix.at<float>(0, 2) << ", 0.0," << endl;
+    if (save_to_file_) savefile << "                " << cameraMatrix.at<float>(1, 0) << ", " << cameraMatrix.at<float>(1, 1) << ", " << cameraMatrix.at<float>(1, 2) << ", 0.0," << endl;
+    if (save_to_file_) savefile << "                " << cameraMatrix.at<float>(2, 0) << ", " << cameraMatrix.at<float>(2, 1) << ", " << cameraMatrix.at<float>(2, 2) << ", 0.0]" << endl;
+
+    // distortion coeffients: k1, k2, p1, p2, k3
+    ROS_INFO("distortion: [%f, %f, %f, %f, %f]", distCoeffs.at<float>(0, 0), 
+                                                 distCoeffs.at<float>(0, 1), 
+                                                 distCoeffs.at<float>(0, 2), 
+                                                 distCoeffs.at<float>(0, 3), 
+                                                 distCoeffs.at<float>(0, 4));
+    if (save_to_file_) savefile << "distortion: [" << distCoeffs.at<float>(0, 0) << ", "
+                                                   << distCoeffs.at<float>(0, 1) << ", "
+                                                   << distCoeffs.at<float>(0, 2) << ", "
+                                                   << distCoeffs.at<float>(0, 3) << ", "
+                                                   << distCoeffs.at<float>(0, 4) << "]";
+
+    // R
+    ROS_INFO("rlc: [%f, %f, %f,", final_transformation(0, 0), final_transformation(0, 1), final_transformation(0, 2));
+    ROS_INFO("      %f, %f, %f,", final_transformation(1, 0), final_transformation(1, 1), final_transformation(1, 2));
+    ROS_INFO("      %f, %f, %f]", final_transformation(2, 0), final_transformation(2, 1), final_transformation(2, 2));
+    if (save_to_file_) savefile << "rlc: [" << final_transformation(0, 0) << ", " << final_transformation(0, 1) << ", " << final_transformation(0, 2) << endl;
+    if (save_to_file_) savefile << "      " << final_transformation(1, 0) << ", " << final_transformation(1, 1) << ", " << final_transformation(1, 2) << endl;
+    if (save_to_file_) savefile << "      " << final_transformation(2, 0) << ", " << final_transformation(2, 1) << ", " << final_transformation(2, 2) << endl;
+
+    // t
+    ROS_INFO("tlc: [%f, %f, %f]", final_transformation(0, 3), final_transformation(1, 3), final_transformation(2, 3));
+    if (save_to_file_) savefile << "tlc: [" << final_transformation(0, 3) << ", " << final_transformation(1, 3) << ", " << final_transformation(2, 3) << endl;
+  }
 
   sensor1Received = false;
   sensor2Received = false;
@@ -410,6 +606,28 @@ void sensor1_callback(const velo2cam_calibration::ClusterCentroids::ConstPtr sen
       ROS_INFO("\t\t%f\t%f\t%f\t%f", R[1].getX(), R[1].getY(), R[1].getZ(), t.getY());
       ROS_INFO("\t\t%f\t%f\t%f\t%f", R[2].getX(), R[2].getY(), R[2].getZ(), t.getZ());
       ROS_INFO("********************************");
+
+      // [SWAN] transform: rotate points from Camera coords to ROS coords
+      // Translation vector: [0, 0, 0]^\top
+      // Rotation Matrix: ROS_R_Camera
+      // [ 0,  0,  1]
+      // [-1,  0,  0]
+      // [ 0, -1,  0]
+
+      //
+      //      from (ROS)       to (Camera)
+      //
+      //          z'  x'               z
+      //          ^   ^               ^
+      //          |  /               /
+      //          | /               /
+      //          |/               /
+      // y' <-----R               C-------->x
+      //                          |
+      //                          |
+      //                          |
+      //                          v
+      //                          y
     }
 
     tf::Transform inverse = transform.inverse();
@@ -439,6 +657,7 @@ void sensor1_callback(const velo2cam_calibration::ClusterCentroids::ConstPtr sen
     colour_sensor1_pub.publish(colour_cloud);
   }
 
+  // SWAN: accumulate Cp for all target poses
   sensor1_buffer[TARGET_POSITIONS_COUNT].push_back(
       std::tuple<int, int, pcl::PointCloud<pcl::PointXYZ>,
                  std::vector<pcl::PointXYZ>>(
@@ -447,7 +666,7 @@ void sensor1_callback(const velo2cam_calibration::ClusterCentroids::ConstPtr sen
           sensor1_vector));
   sensor1_count = sensor1_centroids->total_iterations;
 
-  if (DEBUG) ROS_INFO("[V2C] sensor1");
+  if (DEBUG) ROS_INFO("[V2C] sensor1: %d", TARGET_POSITIONS_COUNT);
 
   for (vector<pcl::PointXYZ>::iterator it = sensor1_vector.begin();
        it < sensor1_vector.end(); ++it) {
@@ -647,7 +866,7 @@ void sensor2_callback(velo2cam_calibration::ClusterCentroids::ConstPtr sensor2_c
           sensor2_vector));
   sensor2_count = sensor2_centroids->total_iterations;
 
-  if (DEBUG) ROS_INFO("[V2C] sensor2");
+  if (DEBUG) ROS_INFO("[V2C] sensor2: %d", TARGET_POSITIONS_COUNT);
 
   for (vector<pcl::PointXYZ>::iterator it = sensor2_vector.begin();
        it < sensor2_vector.end(); ++it) {
@@ -750,6 +969,42 @@ int main(int argc, char **argv) {
   nh_->param<string>("csv_name", csv_name,
                      "registration_" + currentDateTime() + ".csv");
 
+  {
+    // SWAN: set K and D
+    float dummy_default_value = -1.f;
+
+    // camera matrix
+    cameraMatrix.at<float>(0, 0) = nh_->param<float>("fx", dummy_default_value);
+    cameraMatrix.at<float>(0, 1) = 0.f;
+    cameraMatrix.at<float>(0, 2) = nh_->param<float>("cx", dummy_default_value);
+    cameraMatrix.at<float>(1, 0) = 0.f;
+    cameraMatrix.at<float>(1, 1) = nh_->param<float>("fy", dummy_default_value);
+    cameraMatrix.at<float>(1, 2) = nh_->param<float>("cy", dummy_default_value);
+    cameraMatrix.at<float>(2, 0) = 0.f;
+    cameraMatrix.at<float>(2, 1) = 0.f;
+    cameraMatrix.at<float>(2, 2) = 1.f;
+    ROS_INFO("************ [SWAN] K ***************");
+    ROS_INFO("[%f,  %f,  %f]", cameraMatrix.at<float>(0, 0), cameraMatrix.at<float>(0, 1), cameraMatrix.at<float>(0, 2));
+    ROS_INFO("[%f,  %f,  %f]", cameraMatrix.at<float>(1, 0), cameraMatrix.at<float>(1, 1), cameraMatrix.at<float>(1, 2));
+    ROS_INFO("[%f,  %f,  %f]", cameraMatrix.at<float>(2, 0), cameraMatrix.at<float>(2, 1), cameraMatrix.at<float>(2, 2));
+    ROS_INFO("*************************************");
+
+
+    // distortion coeffients: k1, k2, p1, p2, k3
+    distCoeffs.at<float>(0, 0) = nh_->param<float>("k1", dummy_default_value);
+    distCoeffs.at<float>(0, 1) = nh_->param<float>("k2", dummy_default_value);
+    distCoeffs.at<float>(0, 2) = nh_->param<float>("p1", dummy_default_value);
+    distCoeffs.at<float>(0, 3) = nh_->param<float>("p2", dummy_default_value);
+    distCoeffs.at<float>(0, 4) = nh_->param<float>("k3", dummy_default_value);
+    ROS_INFO("************ [SWAN] D ***************");
+    ROS_INFO("[%f,  %f,  %f,  %f,  %f]", distCoeffs.at<float>(0, 0), 
+                                         distCoeffs.at<float>(0, 1), 
+                                         distCoeffs.at<float>(0, 2), 
+                                         distCoeffs.at<float>(0, 3), 
+                                         distCoeffs.at<float>(0, 4));
+    ROS_INFO("*************************************");
+  }
+
   sensor1Received = false;
   sensor1_cloud   = pcl::PointCloud<pcl::PointXYZ>::Ptr(new pcl::PointCloud<pcl::PointXYZ>);
   isensor1_cloud  = pcl::PointCloud<pcl::PointXYZI>::Ptr(new pcl::PointCloud<pcl::PointXYZI>);
@@ -758,8 +1013,10 @@ int main(int argc, char **argv) {
   sensor2_cloud   = pcl::PointCloud<pcl::PointXYZ>::Ptr(new pcl::PointCloud<pcl::PointXYZ>);
   isensor2_cloud  = pcl::PointCloud<pcl::PointXYZI>::Ptr(new pcl::PointCloud<pcl::PointXYZI>);
 
-  sensor1_sub = nh_->subscribe<velo2cam_calibration::ClusterCentroids>("cloud1", 100, sensor1_callback); // SWAN: mono
-  sensor2_sub = nh_->subscribe<velo2cam_calibration::ClusterCentroids>("cloud2", 100, sensor2_callback); // SWAN: lidar
+  // SWAN: mono camera: centers_cloud = not rotated (in camera coords)
+  //            lidar : centers_cloud = rotated (in camera coords)
+  sensor1_sub = nh_->subscribe<velo2cam_calibration::ClusterCentroids>("cloud1", 100, sensor1_callback); // SWAN: /mono_pattern_0/centers_cloud
+  sensor2_sub = nh_->subscribe<velo2cam_calibration::ClusterCentroids>("cloud2", 100, sensor2_callback); // SWAN: /lidar_pattern_0/centers_cloud
 
   if (DEBUG)
   {
